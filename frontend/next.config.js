@@ -8,10 +8,13 @@ const nextConfig = {
     ],
   },
   async rewrites() {
+    // Strip BOM and whitespace from env var (Windows PowerShell pipe artefact)
+    const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000')
+      .replace(/^﻿/, '').trim();
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/:path*`,
+        destination: `${apiUrl}/api/:path*`,
       },
     ];
   },
