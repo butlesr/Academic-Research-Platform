@@ -6,31 +6,38 @@ const logger = require('../utils/logger');
 let pool;
 
 const connectPostgres = async () => {
-  pool = new Pool({
-    host: process.env.PG_HOST || 'localhost',
-    port: parseInt(process.env.PG_PORT) || 5432,
-    database: process.env.PG_DATABASE || 'academic_platform',
-    user: process.env.PG_USER || 'postgres',
-    password: process.env.PG_PASSWORD,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  });
+  // Railway auto-injects DATABASE_URL when Postgres is in the same project
+  if (process.env.DATABASE_URL) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+    logger.info('Using Railway DATABASE_URL for PostgreSQL');
+  } else {
+    pool = new Pool({
+      host: process.env.PG_HOST || 'localhost',
+      port: parseInt(process.env.PG_PORT) || 5432,
+      database: process.env.PG_DATABASE || 'academic_platform',
+      user: process.env.PG_USER || 'postgres',
+      password: process.env.PG_PASSWORD,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+      ssl: process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    });
+  }
 
   pool.on('error', (err) => {
     logger.error('Unexpected PostgreSQL client error:', err);
   });
 
-  try {
-    const client = await pool.connect();
-    await client.query('SELECT NOW()');
-    client.release();
-    logger.info('✅ PostgreSQL connected successfully');
-  } catch (err) {
-    logger.error('❌ PostgreSQL connection failed:', err.message);
-    throw err;
-  }
+  const client = await pool.connect();
+  await client.query('SELECT NOW()');
+  client.release();
+  logger.info('✅ PostgreSQL connected successfully');
 };
 
 const query = async (text, params) => {
@@ -39,11 +46,11 @@ const query = async (text, params) => {
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
     if (duration > 1000) {
-      logger.warn(`Slow query detected (${duration}ms): ${text}`);
+      logger.warn(`Slow query detected (${duration}ms): ${text.substring(0, 80)}`);
     }
     return result;
   } catch (err) {
-    logger.error('Database query error:', { text, error: err.message });
+    logger.error('Database query error:', { text: text.substring(0, 80), error: err.message });
     throw err;
   }
 };

@@ -3,18 +3,38 @@
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
+let mongoConnected = false;
+
 const connectMongo = async () => {
-  const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/academic_chat';
+  const uri = process.env.MONGO_URI;
 
-  mongoose.connection.on('connected', () => logger.info('✅ MongoDB connected'));
-  mongoose.connection.on('error', (err) => logger.error('MongoDB error:', err));
-  mongoose.connection.on('disconnected', () => logger.warn('MongoDB disconnected'));
+  if (!uri || uri.includes('USERNAME:PASSWORD')) {
+    logger.warn('⚠️  MONGO_URI not configured — chat features will be disabled');
+    return;
+  }
 
-  await mongoose.connect(uri, {
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  });
+  try {
+    mongoose.connection.on('connected', () => {
+      mongoConnected = true;
+      logger.info('✅ MongoDB connected');
+    });
+    mongoose.connection.on('error', (err) => logger.error('MongoDB error:', err.message));
+    mongoose.connection.on('disconnected', () => {
+      mongoConnected = false;
+      logger.warn('MongoDB disconnected');
+    });
+
+    await mongoose.connect(uri, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    mongoConnected = true;
+  } catch (err) {
+    logger.warn(`⚠️  MongoDB connection failed (chat disabled): ${err.message}`);
+  }
 };
 
-module.exports = { connectMongo };
+const isMongoConnected = () => mongoConnected;
+
+module.exports = { connectMongo, isMongoConnected };

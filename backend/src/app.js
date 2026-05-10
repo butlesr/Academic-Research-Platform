@@ -1,6 +1,24 @@
 'use strict';
 
 require('dotenv').config();
+
+// ── Auto-generate secrets if not provided ──────────────────────────────────
+// Railway: set these in Variables tab for persistence across restarts
+const crypto = require('crypto');
+if (!process.env.JWT_SECRET) {
+  process.env.JWT_SECRET = crypto.randomBytes(64).toString('hex');
+  console.warn('[WARN] JWT_SECRET not set — random secret used (set in Railway Variables for persistence)');
+}
+if (!process.env.JWT_REFRESH_SECRET) {
+  process.env.JWT_REFRESH_SECRET = crypto.randomBytes(64).toString('hex');
+  console.warn('[WARN] JWT_REFRESH_SECRET not set — random secret used');
+}
+if (!process.env.NODE_ENV) process.env.NODE_ENV = 'production';
+if (!process.env.API_VERSION) process.env.API_VERSION = 'v1';
+if (!process.env.FRONTEND_URL) process.env.FRONTEND_URL = '*';
+if (!process.env.ALLOWED_ORIGINS) process.env.ALLOWED_ORIGINS = '*';
+// ─────────────────────────────────────────────────────────────────────────────
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -13,6 +31,7 @@ const { Server } = require('socket.io');
 const { connectPostgres } = require('./config/database');
 const { connectMongo } = require('./config/mongodb');
 const { connectRedis } = require('./config/redis');
+const { runMigrations } = require('./config/migrate');
 const logger = require('./utils/logger');
 const errorHandler = require('./middleware/errorHandler');
 const { initSocketHandlers } = require('./socket');
@@ -65,11 +84,11 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-// CORS
+// CORS — allow all origins when ALLOWED_ORIGINS='*' (default for Railway)
 app.use(cors({
   origin: (origin, callback) => {
-    const allowed = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
-    if (!origin || allowed.includes(origin)) {
+    const allowed = process.env.ALLOWED_ORIGINS || '*';
+    if (allowed === '*' || !origin || allowed.split(',').includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -111,11 +130,18 @@ if (process.env.NODE_ENV !== 'test') {
 
 // Health check
 app.get('/health', (req, res) => {
+  const { isMongoConnected } = require('./config/mongodb');
+  const { getRedis } = require('./config/redis');
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0',
     environment: process.env.NODE_ENV,
+    services: {
+      postgres: 'connected',
+      mongodb: isMongoConnected() ? 'connected' : 'not configured',
+      redis: getRedis() ? 'connected' : 'in-memory fallback',
+    },
   });
 });
 
@@ -159,11 +185,17 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
+    // PostgreSQL is required — fail fast if unavailable
     await connectPostgres();
-    await connectMongo();
-    await connectRedis();
 
-    server.listen(PORT, () => {
+    // Auto-apply schema on first boot (Railway fresh DB)
+    await runMigrations();
+
+    // MongoDB and Redis are optional — warn but continue
+    await connectMongo().catch((e) => logger.warn('MongoDB skipped:', e.message));
+    await connectRedis().catch((e) => logger.warn('Redis skipped:', e.message));
+
+    server.listen(PORT, '0.0.0.0', () => {
       logger.info(`🚀 Academic Research Platform API running on port ${PORT}`);
       logger.info(`📚 Environment: ${process.env.NODE_ENV}`);
       logger.info(`🔗 API Base: /api/${process.env.API_VERSION || 'v1'}`);
