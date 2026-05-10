@@ -309,11 +309,3 @@ function GoalCard({ goal, accentClass, onSelect, onStatusUpdate, isGuide }: any)
     </div>
   );
 }
-
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: 'text-red-500',
-  urgent: 'text-orange-500',
-  high: 'text-amber-500',
-  medium: 'text-blue-500',
-  low: 'text-gray-400',
-};
