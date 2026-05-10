@@ -121,6 +121,11 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(compression());
 
+// Serve locally-uploaded files (fallback when S3/R2 not configured)
+const uploadsDir = require('path').join(process.cwd(), 'uploads');
+if (!require('fs').existsSync(uploadsDir)) require('fs').mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
+
 // HTTP logging
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('combined', {
