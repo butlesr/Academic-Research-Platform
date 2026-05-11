@@ -12,7 +12,7 @@ FROM base AS production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN mkdir -p logs
+RUN mkdir -p logs uploads && chown -R node:node /app
 
 ENV NODE_ENV=production
 EXPOSE 5000
